@@ -16,6 +16,15 @@ error code and a text message.  In the last line of a reply the
 separator between the code and the message is a space character.
 In case of a multi-line reply, in all lines except the last the
 separator is a hyphen-minus, commonly known as dash ('-').
+
+Example:
+
+	S: 220 Hello
+	C: HELO
+	S: 250-Hi there
+	S: 250 Nice to meet you
+	C: quit
+	S: 221 Bye
 */
 package smtplike
 
@@ -90,9 +99,9 @@ func out(c net.Conn, code int, msg string) error {
 /*
 Run runs the server for the protocol described by p on the
 connection c, passing application-dependent connection-specific
-context ctx to Handlers.  It returns an error error if reading
-from or writing to c fails, or nil if the connection is
-terminated successfully.
+context ctx to Handlers.  It returns an error if reading from or
+writing to c fails, or nil if the connection is terminated
+successfully.
 
 If p[0].Command is an empty string, Run calls p[0].Handler upon
 entry to greet the client, with an empty array in args.  Its
