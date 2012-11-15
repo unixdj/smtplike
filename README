@@ -1,0 +1,9 @@
+A Go package that implements the server side of an SMTP-like protocol.
+
+Copyright 2012 Vadim Vygonets.  Licensed under WTFPL 2.0.
+
+Installing:
+go install github.com/unixdj/smtplike
+
+Documentation in source files.  You can view it online here:
+http://go.pkgdoc.org/github.com/unixdj/smtplike
