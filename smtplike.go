@@ -55,8 +55,9 @@ var UnknownCmdMsg = "Unknown command" // the string to go along with UnknownCmd
 Proto defines the mapping between commands and hadlers.
 
 Command strings should be lowercase.  The Command of the 0th
-may be an empty string, in which case its Handler is called
-immediately after receiving a connection to greet the client.
+element may be an empty string, in which case its Handler is
+called immediately after receiving a connection to greet the
+client.
 
 The Handler functions receive the arguments sent with the
 Command and a context, and return the numeric code and message to
@@ -87,7 +88,7 @@ func out(c net.Conn, code int, msg string) error {
 }
 
 /*
-Run runs the server of the protocol described by p on the
+Run runs the server for the protocol described by p on the
 connection c, passing application-dependent connection-specific
 context ctx to Handlers.  It returns an error error if reading
 from or writing to c fails, or nil if the connection is
@@ -110,7 +111,8 @@ expected to return code between 0 and 999 and msg consisting of
 text lines separated by '\n'.
 
 In case no matching Command is found, UnknownCmd (500) and
-UnknownCmdMsg are used as code and msg.
+UnknownCmdMsg are used as code and msg.  Same happens if the
+line received contains no command.
 
 The msg is then broken into lines and sent to the client
 prepended by the code and followed by '\r\n', in the normal
