@@ -9,15 +9,15 @@
 Package smtplike implements the server side of an SMTP-like protocol.
 
 For the purpose of this package, in an SMTP-like protocol the
-client sends textual commands terminated by \n (possibly \r\n)
-with arguments separated by whitespace, and the server replies
-with \r\n-terminated lines consisting of a three-digit error
-code and a text message.  In the last line of a reply the
-separator between the code and the message is a space character.
-In case of a multi-line reply, in all lines except the last the
-separator is a hyphen-minus, commonly known as dash ('-').  Some
-client commands may be followed by multiline text terminated by
-a predefined line.
+client sends textual commands terminated by "\r\n" with arguments
+separated by whitespace, and the server replies with
+"\r\n"-terminated lines consisting of a three-digit error code
+and a text message.  In the last line of a reply the separator
+between the code and the message is a space character.  In case
+of a multi-line reply, in all lines except the last the separator
+is a hyphen-minus, commonly known as dash ('-').  Some client
+commands may be followed by multiline text terminated by a
+predefined line.
 
 Example:
 
@@ -78,7 +78,9 @@ The Handler functions receive the arguments sent with the
 Command and a context, and return the numeric code and message to
 send to the client.  Multiline messages are possible with '\n'
 as the line separator.  If a Handler returns Goodbye (221) or
-Unavailable (421) as the code, the connection is terminated.
+Unavailable (421) as the code, the connection is terminated.  If
+the code returned is less than 0 or greater than 999, the
+behaviour is undefined.
 
 The handling of the protocol is described in more detail under
 Run().
@@ -97,6 +99,21 @@ type Conn struct {
 	err error
 }
 
+func (c *Conn) readLine() (string, error) {
+	line := ""
+	for {
+		s, err := c.in.ReadString('\n')
+		if err != nil {
+			return line, err
+		}
+		line += s
+		if len(s) >= 2 && s[len(s)-2:] == "\r\n" {
+			break
+		}
+	}
+	return line, nil
+}
+
 func (c *Conn) respond(code int, msg string) error {
 	lines := strings.Split(msg, "\n")
 	if len(lines) == 0 {
@@ -109,16 +126,6 @@ func (c *Conn) respond(code int, msg string) error {
 	s += fmt.Sprintf("%03d %s\r\n", code, lines[len(lines)-1])
 	_, err := c.c.Write([]byte(s))
 	return err
-}
-
-func chop(s string) string {
-	if len(s) > 0 && s[len(s)-1] == '\n' {
-		s = s[:len(s)-1]
-	}
-	if len(s) > 0 && s[len(s)-1] == '\r' {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 /*
@@ -150,14 +157,15 @@ func (c *Conn) ReadMore(code int, msg string, end string) ([]string, error) {
 	if c.err = c.respond(code, msg); c.err != nil {
 		return nil, c.err
 	}
+	end += "\r\n"
 	var lines []string
 	for {
-		line, err := c.in.ReadString('\n')
+		line, err := c.readLine()
 		if err != nil {
 			c.err = err
 			return lines, err
 		}
-		if chop(line) == end {
+		if line == end {
 			break
 		}
 		lines = append(lines, line)
@@ -214,7 +222,7 @@ func (p Proto) Run(c net.Conn, ctx interface{}) error {
 		}
 	}
 	for {
-		line, err := pc.in.ReadString('\n')
+		line, err := pc.readLine()
 		if err != nil {
 			return err
 		}
