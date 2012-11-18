@@ -18,26 +18,27 @@ import (
 	"net"
 )
 
-func greet(args []string, ctx interface{}) (code int, msg string) {
+func greet(args []string, c *smtplike.Conn) (code int, msg string) {
 	return smtplike.Hello, "may i help you?"
 }
 
-func help(args []string, ctx interface{}) (code int, msg string) {
+func help(args []string, c *smtplike.Conn) (code int, msg string) {
 	return 214, `commands:
 help
 helo
 how are you
 how is [someone]
+talk
 quit`
 }
 
-func hello(args []string, ctx interface{}) (code int, msg string) {
-	*ctx.(*bool) = true
+func hello(args []string, c *smtplike.Conn) (code int, msg string) {
+	*c.Ctx.(*bool) = true
 	return 250, "oh, hi!"
 }
 
-func how(args []string, ctx interface{}) (code int, msg string) {
-	if !*ctx.(*bool) {
+func how(args []string, c *smtplike.Conn) (code int, msg string) {
+	if !*c.Ctx.(*bool) {
 		return 503, "say helo first"
 	}
 	code, msg = 501, "usage:\n    how are you\n    how is [name]"
@@ -56,11 +57,23 @@ func how(args []string, ctx interface{}) (code int, msg string) {
 	return
 }
 
-func smtp(args []string, ctx interface{}) (code int, msg string) {
+func talk(args []string, c *smtplike.Conn) (code int, msg string) {
+	lines, err := c.ReadMore(354, `talk to me, end with "."`, ".")
+	if err != nil {
+		return 0, ""
+	}
+	s := "you said:"
+	for _, v := range lines {
+		s += fmt.Sprintf("\n  %q", v)
+	}
+	return 250, s
+}
+
+func smtp(args []string, c *smtplike.Conn) (code int, msg string) {
 	return smtplike.Unavailable, "what is it, ESMTP?  service unavailable!"
 }
 
-func quit(args []string, ctx interface{}) (code int, msg string) {
+func quit(args []string, c *smtplike.Conn) (code int, msg string) {
 	return smtplike.Goodbye, "bye"
 }
 
@@ -70,6 +83,7 @@ var proto = smtplike.Proto{
 	{"help", help},
 	{"helo", hello},
 	{"how", how},
+	{"talk", talk},
 	{"quit", quit},
 	{"mail", smtp},
 	{"rcpt", smtp},

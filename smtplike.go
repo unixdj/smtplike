@@ -11,20 +11,26 @@ Package smtplike implements the server side of an SMTP-like protocol.
 For the purpose of this package, in an SMTP-like protocol the
 client sends textual commands terminated by \n (possibly \r\n)
 with arguments separated by whitespace, and the server replies
-with \r\n-terminated lines, where each line is a three-digit
-error code and a text message.  In the last line of a reply the
+with \r\n-terminated lines consisting of a three-digit error
+code and a text message.  In the last line of a reply the
 separator between the code and the message is a space character.
 In case of a multi-line reply, in all lines except the last the
-separator is a hyphen-minus, commonly known as dash ('-').
+separator is a hyphen-minus, commonly known as dash ('-').  Some
+clinent commands may be followed by multiline text terminated by
+a predefined line.
 
 Example:
 
 	S: 220 Hello
-	C: HELO
-	S: 250-Hi there
-	S: 250 Nice to meet you
+	C: TELL everyone
+	S: 354-What should I tell them?
+	S: 354 Tell me, terminate with "."
+	C: Nothing to say, it's just a meaningless
+	C: multiline message under 140 characters.
+	C: .
+	S: 250 Ok, I'll tell everyone.
 	C: quit
-	S: 221 Bye
+	S: 221 Yalla tschüß
 */
 package smtplike
 
@@ -79,10 +85,19 @@ Run().
 */
 type Proto []struct {
 	Command string
-	Handler func(args []string, ctx interface{}) (code int, msg string)
+	Handler func(args []string, c *Conn) (code int, msg string)
 }
 
-func out(c net.Conn, code int, msg string) error {
+// Conn represents a connection.
+// It is passed to Handler functions by (Proto).Run().
+type Conn struct {
+	Ctx interface{} // ctx as passed to (Proto).Run().
+	c   net.Conn
+	in  *bufio.Reader
+	err error
+}
+
+func (c *Conn) respond(code int, msg string) error {
 	lines := strings.Split(msg, "\n")
 	if len(lines) == 0 {
 		lines = []string{""}
@@ -92,16 +107,70 @@ func out(c net.Conn, code int, msg string) error {
 		s += fmt.Sprintf("%03d-%s\r\n", code, v)
 	}
 	s += fmt.Sprintf("%03d %s\r\n", code, lines[len(lines)-1])
-	_, err := c.Write([]byte(s))
+	_, err := c.c.Write([]byte(s))
 	return err
+}
+
+func chop(s string) string {
+	if len(s) > 0 && s[len(s)-1] == '\n' {
+		s = s[:len(s)-1]
+	}
+	if len(s) > 0 && s[len(s)-1] == '\r' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+/*
+ReadMore requests and receives multiline data from the client.
+
+It starts by sending the code and msg in the normal SMTP-like
+fashion.  It then reads lines from the conection until the line
+is equal to end + "\r\n".  The lines received, except the end
+line, are returned as a string array.
+
+If ReadMore encounters an error, it's returned to the caller and
+saved.  When the Handler returns, the connection will be closed
+and (Proto).Run() will return the same saved error to its caller.
+
+Example:
+
+	func smtpData(args []string, c *Conn) (int, string) {
+		lines, err := c.ReadMore(354, "Start mail input; end with <CRLF>.<CRLF>", ".")
+		if err != nil {
+			// handle err in (Proto).Run()'s caller
+			return 0, "" // return values don't matter after error
+		}
+		// save lines
+		return 250, "Ok"
+	}
+
+*/
+func (c *Conn) ReadMore(code int, msg string, end string) ([]string, error) {
+	if c.err = c.respond(code, msg); c.err != nil {
+		return nil, c.err
+	}
+	var lines []string
+	for {
+		line, err := c.in.ReadString('\n')
+		if err != nil {
+			c.err = err
+			return lines, err
+		}
+		if chop(line) == end {
+			break
+		}
+		lines = append(lines, line)
+	}
+	return lines, nil
 }
 
 /*
 Run runs the server for the protocol described by p on the
 connection c, passing application-dependent connection-specific
-context ctx to Handlers.  It returns an error if reading from or
-writing to c fails, or nil if the connection is terminated
-successfully.
+context ctx to Handler fuctions in Conn.  It returns an error if
+reading from or writing to c fails, or nil if the connection is
+terminated successfully.
 
 If p[0].Command is an empty string, Run calls p[0].Handler upon
 entry to greet the client, with an empty array in args.  Its
@@ -130,10 +199,14 @@ Unavailable (421), the connection is then terminated.
 */
 func (p Proto) Run(c net.Conn, ctx interface{}) error {
 	defer c.Close()
-	in := bufio.NewReader(c)
+	pc := Conn{
+		Ctx: ctx,
+		c:   c,
+		in:  bufio.NewReader(c),
+	}
 	if len(p) != 0 && p[0].Command == "" {
-		code, msg := p[0].Handler([]string{}, ctx)
-		if err := out(c, code, msg); err != nil {
+		code, msg := p[0].Handler([]string{}, &pc)
+		if err := pc.respond(code, msg); err != nil {
 			return err
 		}
 		if code == Goodbye || code == Unavailable {
@@ -141,7 +214,7 @@ func (p Proto) Run(c net.Conn, ctx interface{}) error {
 		}
 	}
 	for {
-		line, err := in.ReadString('\n')
+		line, err := pc.in.ReadString('\n')
 		if err != nil {
 			return err
 		}
@@ -151,12 +224,15 @@ func (p Proto) Run(c net.Conn, ctx interface{}) error {
 			cmd := strings.ToLower(f[0])
 			for _, v := range p {
 				if v.Command == cmd {
-					code, msg = v.Handler(f[1:], ctx)
+					code, msg = v.Handler(f[1:], &pc)
+					if pc.err != nil {
+						return pc.err
+					}
 					break
 				}
 			}
 		}
-		if err = out(c, code, msg); err != nil {
+		if err = pc.respond(code, msg); err != nil {
 			return err
 		}
 		if code == Goodbye || code == Unavailable {
