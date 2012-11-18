@@ -16,7 +16,7 @@ code and a text message.  In the last line of a reply the
 separator between the code and the message is a space character.
 In case of a multi-line reply, in all lines except the last the
 separator is a hyphen-minus, commonly known as dash ('-').  Some
-clinent commands may be followed by multiline text terminated by
+client commands may be followed by multiline text terminated by
 a predefined line.
 
 Example:
